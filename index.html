@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Student Desk · UNIMED</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.453.0/dist/umd/lucide.min.js" defer></script>
+  </head>
+
+  <body>
+    <aside id="side">
+      <div class="logo">
+        <img
+          class="full"
+          src="logo.png"
+          alt="Universitas Negeri Medan (UNIMED), The Character Building University"
+        />
+        <img class="emblem" src="favicon.png" alt="UNIMED" />
+        <div class="app">
+          <div><b>Student Desk</b><small>Student Administration</small></div>
+          <button class="collapse" id="collapse" aria-label="Ciutkan sidebar" title="Ciutkan sidebar">
+            <i data-lucide="panel-left-close"></i>
+          </button>
+        </div>
+      </div>
+      <div class="dd side-new">
+        <button class="btn" id="newBtn" aria-haspopup="true" aria-expanded="false">
+          <i data-lucide="plus"></i><span>Buat baru</span><i data-lucide="chevron-down" class="cv"></i>
+        </button>
+        <div class="pop menu" id="popNew" hidden></div>
+      </div>
+      <nav id="nav" aria-label="Menu utama"></nav>
+      <div class="store" id="store"></div>
+      <div class="tip">
+        <div>
+          <b>Semangat terus!</b>
+          Setiap langkah kecil adalah bagian dari kesuksesan besar.
+        </div>
+        <svg viewBox="0 0 40 48" aria-hidden="true">
+          <path d="M20 46C16 30 20 16 30 6c3 14 0 30-10 40z" fill="#34b6c9" />
+          <path d="M20 46C12 36 6 32 0 32c4 9 11 15 20 14z" fill="#7fdbe6" />
+        </svg>
+      </div>
+    </aside>
+    <div id="shade"></div>
+
+    <div class="main">
+      <header>
+        <button class="btn ghost" id="burger" aria-label="Menu"><i data-lucide="menu"></i></button>
+        <div class="crumb"><small>Student Desk</small><span id="ttl"></span></div>
+        <label class="gs">
+          <i data-lucide="search"></i>
+          <input id="gs" placeholder="Cari dokumen, nama, atau kegiatan…" aria-label="Cari dokumen" />
+          <kbd title="Tekan / untuk mencari">/</kbd>
+        </label>
+        <span class="chip"><i data-lucide="calendar"></i><span id="today"></span></span>
+        <div class="dd">
+          <button
+            class="bell"
+            id="bell"
+            aria-label="Jadwal mendatang"
+            aria-haspopup="true"
+            aria-expanded="false"
+          >
+            <i data-lucide="bell"></i><b hidden></b>
+          </button>
+          <div class="pop" id="popBell" hidden></div>
+        </div>
+        <div class="dd">
+          <button class="me" id="me" aria-label="Menu akun" aria-haspopup="true" aria-expanded="false">
+            <i id="ava">P</i>
+            <div><b id="uname">Pelajar</b><small>Pelajar</small></div>
+            <i data-lucide="chevron-down" class="chev"></i>
+          </button>
+          <div class="pop menu" id="popMe" hidden></div>
+        </div>
+      </header>
+      <main id="view"></main>
+    </div>
+
+    <div id="modal" hidden></div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="print"></div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
