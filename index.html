@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      /* Terapkan tema sebelum halaman digambar agar tidak berkedip */
+      try {
+        document.documentElement.dataset.theme =
+          localStorage.getItem("sd_theme") ||
+          (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      } catch (e) {}
+    </script>
     <title>Student Desk · UNIMED</title>
     <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -16,6 +24,9 @@
   </head>
 
   <body>
+    <noscript
+      ><p style="padding:24px;font-family:sans-serif">Student Desk membutuhkan JavaScript. Aktifkan JavaScript di browser lalu muat ulang halaman.</p></noscript
+    >
     <aside id="side">
       <div class="logo">
         <img

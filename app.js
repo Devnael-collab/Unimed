@@ -8,6 +8,7 @@
    03. Konfigurasi: definisi modul, template surat, tampilan sel
    04. Formulir   : tambah/edit dan preview dokumen
    05. Halaman    : daftar modul, dashboard, riwayat, pengaturan
+   05a. Data contoh: data awal yang bisa diisi ulang / dihapus
    06. Aplikasi   : navigasi dan inisialisasi
    ========================================================================== */
 
@@ -55,7 +56,10 @@ const DB = {
 
     if (record.id) {
       const i = rows.findIndex((r) => r.id === record.id);
-      if (i < 0) return false;
+      if (i < 0) {
+        toast('Data tidak ditemukan (mungkin sudah dihapus)', 1);
+        return false;
+      }
       rows[i] = { ...rows[i], ...record, upd: now };
     } else {
       rows.push({ ...record, id: uid(), created: now, upd: now });
@@ -107,13 +111,22 @@ const rp = (n) =>
   }).format(n || 0);
 
 /** "2026-10-27" → "27 Oktober 2026" */
-const tgl = (d) =>
-  d
-    ? new Date(d + 'T00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '';
+const tgl = (d) => {
+  if (!d) return '';
+  const date = new Date(d + 'T00:00');
+  return isNaN(date)
+    ? String(d)
+    : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+};
 
 /** ISO timestamp → "27/10/2026" */
-const tglPendek = (d) => new Date(d).toLocaleDateString('id-ID');
+const tglPendek = (d) => {
+  const date = new Date(d);
+  return d && !isNaN(date) ? date.toLocaleDateString('id-ID') : '-';
+};
+
+/** Jam "09.00" (format lama) → "09:00" agar terbaca oleh input jam. */
+const normTime = (v) => (/^\d{1,2}\.\d{2}$/.test(String(v ?? '')) ? String(v).replace('.', ':').padStart(5, '0') : v);
 
 const icons = () => window.lucide && lucide.createIcons();
 
@@ -129,18 +142,21 @@ function toast(message, isError) {
 /* --- Modal --- */
 function modal(html, wide) {
   const m = $('#modal');
+  if (m.hidden) lastFocus = document.activeElement;
   m.innerHTML = `<div class="box ${wide ? 'wide' : ''}">${html}</div>`;
   m.hidden = false;
   m.setAttribute('role', 'dialog');
   m.setAttribute('aria-modal', 'true');
-  lastFocus = document.activeElement;
   icons();
   $('input, select, textarea, button', m)?.focus();
 }
 
 let lastFocus = null;
 function closeModal() {
-  $('#modal').hidden = true;
+  const m = $('#modal');
+  if (m.hidden) return;
+  m.hidden = true;
+  m.innerHTML = '';
   lastFocus?.focus?.();
 }
 
@@ -149,7 +165,27 @@ $('#modal').addEventListener('mousedown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
+  const m = $('#modal');
+  if (m.hidden) return;
+  if (e.key === 'Escape') return closeModal();
+
+  // Fokus tidak boleh keluar dari dialog saat menekan Tab
+  if (e.key === 'Tab') {
+    const items = [...m.querySelectorAll('input, select, textarea, button, a[href]')].filter((el) => !el.disabled && !el.hidden);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!m.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 });
 
 function confirmBox(message, onConfirm) {
@@ -161,8 +197,8 @@ function confirmBox(message, onConfirm) {
       <button class="btn danger" data-ok>Ya, lanjutkan</button>
     </div>`);
 
-  $('[data-x]').onclick = closeModal;
-  $('[data-ok]').onclick = () => {
+  $('#modal [data-x]').onclick = closeModal;
+  $('#modal [data-ok]').onclick = () => {
     closeModal();
     onConfirm();
   };
@@ -317,7 +353,7 @@ const M = {
     ],
     render: (r) => `
       ${kop()}
-      <p style="text-align:center"><b><u>${esc(r.judul.toUpperCase())}</u></b><br>Nomor: ${esc(r.nomor)}</p>
+      <p style="text-align:center"><b><u>${esc(String(r.judul || '').toUpperCase())}</u></b><br>Nomor: ${esc(r.nomor)}</p>
       <p>Pada hari/tanggal ${esc(tgl(r.tanggal))}${r.waktu ? ', pukul ' + esc(r.waktu) : ''}, bertempat di ${esc(r.lokasi)}, yang bertanda tangan di bawah ini:</p>
       <p>1. ${esc(r.p1)} — ${esc(r.j1)} (Pihak Pertama)<br>2. ${esc(r.p2)} — ${esc(r.j2)} (Pihak Kedua)</p>
       <p><b>Uraian:</b><br>${nl2br(r.uraian)}</p>
@@ -400,10 +436,11 @@ const M = {
     list: (a) => {
       const groups = {};
       a.forEach((r) => (groups[r.kegiatan + '|' + r.tanggal] ||= []).push(r));
-      return Object.values(groups)
+      const all = Object.values(groups);
+      return all
         .map(
-          (g) => `
-        <section style="break-after:page">
+          (g, gi) => `
+        <section${gi < all.length - 1 ? ' style="break-after:page"' : ''}>
         ${kop()}
         <h3 style="text-align:center">DAFTAR HADIR<br>${esc(g[0].kegiatan)}</h3>
         <p>Tanggal: ${esc(tgl(g[0].tanggal))}, Lokasi: ${esc(g[0].lokasi || '-')}</p>
@@ -519,11 +556,13 @@ function cell(m, r, k) {
 function nextNo(m) {
   const d = new Date();
   const used = new Set(DB.list(m).map((r) => r.nomor));
+  let fmt = S().fmt || '{n}/SD/{bln}/{thn}';
+  if (!fmt.includes('{n}')) fmt += '/{n}'; // pastikan nomor selalu unik
   const make = (i) =>
-    (S().fmt || '{n}/SD/{bln}/{thn}')
-      .replace('{n}', String(i).padStart(3, '0'))
-      .replace('{bln}', String(d.getMonth() + 1).padStart(2, '0'))
-      .replace('{thn}', d.getFullYear());
+    fmt
+      .replace(/\{n\}/g, String(i).padStart(3, '0'))
+      .replace(/\{bln\}/g, String(d.getMonth() + 1).padStart(2, '0'))
+      .replace(/\{thn\}/g, d.getFullYear());
   let i = DB.list(m).length + 1;
   while (used.has(make(i))) i++;
   return make(i);
@@ -540,17 +579,18 @@ function fieldHTML(m, field, record, isEdit) {
     if (type === 'date' && !value) value = today();
     if (k === 'nomor') value = nextNo(m);
   }
+  if (type === 'time') value = normTime(value);
 
   const attrs = `name="${k}" id="f_${k}" ${required ? 'required' : ''}`;
   let control;
 
   if (type === 'select') {
-    const options = extra.map((o) => `<option ${o === value ? 'selected' : ''}>${o}</option>`).join('');
+    const options = extra.map((o) => `<option ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('');
     control = `<select ${attrs}><option value="">Pilih…</option>${options}</select>`;
   } else if (type === 'textarea') {
     control = `<textarea ${attrs}>${esc(value)}</textarea>`;
   } else {
-    const numberAttrs = type === 'number' ? 'min="0" step="any"' : '';
+    const numberAttrs = type === 'number' ? `min="0" ${k === 'sim' || k === 'batas' ? 'max="100"' : ''} step="any"` : '';
     control = `<input ${attrs} type="${type}" ${numberAttrs} value="${esc(value)}">`;
   }
 
@@ -590,6 +630,16 @@ function readForm(fields) {
   return { data, invalid };
 }
 
+/** Aturan antar-field. Mengembalikan { kunci: pesan } bila ada yang salah. */
+const CROSS_RULES = {
+  magang: (d) => (d.tglMulai && d.tglSelesai && d.tglSelesai < d.tglMulai ? { tglSelesai: 'Tidak boleh sebelum tanggal mulai' } : {}),
+  pedos: (d) => (d.mulai && d.selesai && d.selesai < d.mulai ? { selesai: 'Tidak boleh sebelum waktu mulai' } : {}),
+  turnitin: (d) => ({
+    ...(d.sim > 100 ? { sim: 'Maksimal 100%' } : {}),
+    ...(d.batas > 100 ? { batas: 'Maksimal 100%' } : {}),
+  }),
+};
+
 function openForm(m, id) {
   const C = M[m];
   const record = id ? DB.get(m, id) : {};
@@ -605,15 +655,27 @@ function openForm(m, id) {
       </div>
     </form>`);
 
-  $('[data-x]').onclick = closeModal;
+  $('#modal [data-x]').onclick = closeModal;
 
   $('#frm').onsubmit = (e) => {
     e.preventDefault();
 
-    const { data, invalid } = readForm(C.f);
+    const { data, invalid: basicInvalid } = readForm(C.f);
+    let invalid = basicInvalid;
+
+    const problems = basicInvalid ? {} : CROSS_RULES[m]?.(data) || {};
+    Object.entries(problems).forEach(([k, message]) => {
+      const group = $('#f_' + k).closest('.fg');
+      group.classList.add('err');
+      group.lastElementChild.textContent = message;
+      invalid++;
+    });
     if (invalid) return toast('Periksa kembali isian formulir', 1);
 
-    if (id) data.id = id;
+    if (id) {
+      data.id = id;
+      data.demo = 0; // data contoh yang diedit dianggap milik pengguna
+    }
     if (DB.put(m, data)) {
       closeModal();
       toast('Data tersimpan');
@@ -637,8 +699,8 @@ function preview(m, id) {
     1,
   );
 
-  $('[data-x]').onclick = closeModal;
-  $('[data-p]').onclick = () => doPrint(C.render(record));
+  $('#modal [data-x]').onclick = closeModal;
+  $('#modal [data-p]').onclick = () => doPrint(C.render(record));
 }
 
 /* ==========================================================================
@@ -648,8 +710,14 @@ function preview(m, id) {
 /* --- Helper bersama --- */
 const emptyHTML = (message) => `<div class="empty"><i data-lucide="inbox"></i><br>${message}</div>`;
 
-const matchesSearch = (record, query) =>
-  !query || Object.values(record).join(' ').toLowerCase().includes(query);
+/** Cocokkan kata kunci dengan isi field modul saja (bukan id, flag demo, atau stempel waktu). */
+const matchesSearch = (record, query, m = record._m) =>
+  !query ||
+  M[m].f
+    .map(([k, , type]) => (type === 'date' ? record[k] + ' ' + tgl(record[k]) : record[k]))
+    .join(' ')
+    .toLowerCase()
+    .includes(query);
 
 /** Tombol aksi di akhir baris tabel. */
 const actionButtons = (m, id, canPreview) => {
@@ -711,8 +779,8 @@ function listView(m) {
     : '';
 
   $('#view').innerHTML = `
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1">
+    <div class="page-head">
+      <div class="page-head-main">
         <h2>${C.label}</h2>
         <span class="muted">${C.note || 'Data tersimpan di browser perangkat ini.'}</span>
       </div>
@@ -735,8 +803,17 @@ function listView(m) {
     rows.sort((x, y) =>
       C.sort
         ? (x.tanggal + (x.mulai || '')).localeCompare(y.tanggal + (y.mulai || ''))
-        : (y.tanggal || y.upd).localeCompare(x.tanggal || x.upd),
+        : (y.tanggal || y.upd || '').localeCompare(x.tanggal || x.upd || '') ||
+          (y.upd || '').localeCompare(x.upd || ''),
     );
+
+  /** Nilai mentah untuk mengurutkan kolom tanggal / angka (teks tampilan tidak cocok). */
+  const sortValue = (r, k) => {
+    const type = fieldOf(m, k)[2];
+    if (type === 'date') return r[k] || '';
+    if (type === 'number') return String(Number(r[k]) || 0).padStart(15, '0');
+    return null;
+  };
 
   const tableHTML = (rows) => `
     <table>
@@ -745,7 +822,12 @@ function listView(m) {
         .map(
           (r) => `
         <tr>
-          ${C.cols.map((k) => `<td>${cell(m, r, k)}</td>`).join('')}
+          ${C.cols
+            .map((k) => {
+              const sv = sortValue(r, k);
+              return `<td${sv === null ? '' : ` data-sv="${esc(sv)}"`}>${cell(m, r, k)}</td>`;
+            })
+            .join('')}
           <td class="act">${actionButtons(m, r.id, !!C.render)}</td>
         </tr>`,
         )
@@ -761,7 +843,7 @@ function listView(m) {
     const rows = sortRows(
       DB.list(m).filter(
         (r) =>
-          matchesSearch(r, search.toLowerCase()) &&
+          matchesSearch(r, search.toLowerCase(), m) &&
           (!status || r[C.filter] === status) &&
           (!date || r.tanggal === date),
       ),
@@ -811,7 +893,7 @@ const tint = (m) => `--c:${LOOK[m][0]};--cs:${LOOK[m][0]}1f`;
 const madeToday = (r) => new Date(r.created).toLocaleDateString() === new Date().toLocaleDateString();
 const trend = (rows) => {
   const n = rows.filter(madeToday).length;
-  return n ? `<em>↑ ${n} hari ini</em>` : '<em class="flat">Belum ada hari ini</em>';
+  return n ? `<em>↑ ${n} hari ini</em>` : '<em class="flat">Belum ada baru</em>';
 };
 
 let globalQ = ''; // kata kunci dari kolom cari di header
@@ -843,6 +925,163 @@ const greeting = () => {
   return 'Selamat malam';
 };
 
+/* --- Kutipan harian --- */
+const QUOTES = [
+  'Tidak perlu menunggu siap sempurna. Mulai dari satu berkas, selesaikan satu per satu.',
+  'Berkas yang rapi hari ini menyelamatkan waktumu esok hari.',
+  'Konsisten sedikit setiap hari mengalahkan semangat besar yang hanya sesaat.',
+  'Setiap lembar dan catatan kecil adalah langkah menuju kelulusan.',
+  'Yang terjadwal akan terlaksana. Yang tercatat tidak akan terlupa.',
+  'Tenang dan teratur adalah kunci pekerjaan yang cepat selesai.',
+  'Satu tugas yang selesai lebih berharga daripada sepuluh yang hanya direncanakan.',
+  'Ilmu tumbuh dari kebiasaan kecil yang dijaga dengan sabar.',
+  'Hari yang baik dimulai dari daftar yang jelas.',
+  'Jangan bandingkan lajumu dengan orang lain. Cukup lebih baik dari kemarin.',
+  'Karakter dibangun dari hal-hal kecil yang dikerjakan dengan jujur.',
+  'Kerjakan dengan jujur, rapikan dengan teliti, serahkan dengan percaya diri.',
+];
+let quoteShift = 0;
+const quoteNow = () => {
+  const day = Math.floor(new Date(today() + 'T00:00').getTime() / 864e5);
+  return QUOTES[(day + quoteShift) % QUOTES.length];
+};
+
+/* --- Pengingat: otomatis dari data + catatan manual (CRUD) --- */
+const dayDiff = (d) => Math.round((new Date(d + 'T00:00') - new Date(today() + 'T00:00')) / 864e5);
+const whenLabel = (n) =>
+  n < 0 ? `Terlewat ${-n} hari` : n === 0 ? 'Hari ini' : n === 1 ? 'Besok' : `${n} hari lagi`;
+const dueTone = (n) => (n < 0 ? 'bad' : n <= 1 ? 'warn' : 'info');
+
+function reminderItems() {
+  const items = [];
+
+  DB.list('pedos')
+    .filter((r) => r.status === 'Terjadwal')
+    .forEach((r) => {
+      const n = dayDiff(r.tanggal);
+      if (isNaN(n) || n > 7) return;
+      items.push({
+        auto: 1,
+        icon: 'calendar-days',
+        tone: dueTone(n),
+        title: r.kegiatan,
+        sub: n < 0 ? 'Jadwal terlewat, perbarui statusnya' : `${r.mulai}${r.lokasi ? ' · ' + r.lokasi : ''}`,
+        label: whenLabel(n),
+        href: '#pedos',
+        rank: n,
+      });
+    });
+
+  DB.list('magang').forEach((r) => {
+    const n = dayDiff(r.tglMulai);
+    if (isNaN(n) || n < 0 || n > 7) return;
+    items.push({
+      auto: 1,
+      icon: 'briefcase',
+      tone: dueTone(n),
+      title: `Magang dimulai: ${r.nama}`,
+      sub: r.instansi,
+      label: whenLabel(n),
+      href: '#magang',
+      rank: n,
+    });
+  });
+
+  DB.list('turnitin').forEach((r) => {
+    if (r.status === 'Selesai') return;
+    const revisi = r.status === 'Perlu Revisi';
+    items.push({
+      auto: 1,
+      icon: 'search-check',
+      tone: revisi ? 'bad' : 'warn',
+      title: `${revisi ? 'Revisi' : 'Tunggu hasil'}: ${r.dokumen}`,
+      sub: `${r.nama} · similarity ${r.sim}%`,
+      label: revisi ? 'Perlu revisi' : 'Menunggu',
+      href: '#turnitin',
+      rank: revisi ? 1 : 3,
+    });
+  });
+
+  DB.list('pengingat').forEach((r) => {
+    const diff = r.tanggal ? dayDiff(r.tanggal) : null;
+    const n = isNaN(diff) ? null : diff;
+    items.push({
+      id: r.id,
+      done: !!r.done,
+      icon: 'sticky-note',
+      tone: r.done ? 'ok' : n === null ? 'info' : dueTone(n),
+      title: r.teks,
+      sub: r.tanggal ? tgl(r.tanggal) : 'Catatan pribadi',
+      label: r.done ? 'Selesai' : n === null ? 'Catatan' : whenLabel(n),
+      rank: n === null ? 5 : n,
+    });
+  });
+
+  return items.sort((x, y) => (x.done ? 1 : 0) - (y.done ? 1 : 0) || x.rank - y.rank);
+}
+
+function remindersHTML() {
+  const items = reminderItems();
+  const open = items.filter((i) => !i.done).length;
+  const shown = items.slice(0, 5);
+
+  const row = (i) => {
+    const body = `<div class="rm-b"><p>${esc(i.title)}</p><small>${esc(i.sub)}</small></div>
+      <span class="badge ${i.tone}">${esc(i.label)}</span>`;
+    if (i.auto)
+      return `<a class="rm" href="${i.href}"><span class="rm-ic ${i.tone}"><i data-lucide="${i.icon}"></i></span>${body}</a>`;
+    return `<div class="rm ${i.done ? 'done' : ''}">
+      <button type="button" class="rm-chk" data-rm="toggle" data-id="${i.id}" aria-label="Tandai selesai" aria-pressed="${i.done}"><i data-lucide="check"></i></button>
+      ${body}
+      <button type="button" class="rm-x" data-rm="del" data-id="${i.id}" aria-label="Hapus pengingat"><i data-lucide="x"></i></button>
+    </div>`;
+  };
+
+  return `
+    <div class="sec-h"><h3>Pengingat</h3>${open ? `<span class="badge warn">${open} aktif</span>` : ''}</div>
+    <form class="rm-form" id="rmForm" autocomplete="off">
+      <input name="teks" placeholder="Tulis pengingat baru…" aria-label="Isi pengingat" maxlength="120" required>
+      <button class="btn" aria-label="Tambah pengingat"><i data-lucide="plus"></i></button>
+      <label class="rm-date"><span>Tenggat (opsional)</span><input name="tanggal" type="date"></label>
+    </form>
+    <div class="rm-list">
+      ${shown.length ? shown.map(row).join('') : '<div class="rm-empty"><i data-lucide="bell-ring"></i>Belum ada pengingat. Jadwal, magang, dan Turnitin yang butuh perhatian akan muncul di sini otomatis.</div>'}
+    </div>
+    ${items.length > shown.length ? `<small class="muted">+${items.length - shown.length} pengingat lainnya</small>` : ''}`;
+}
+
+function paintReminders() {
+  const box = $('#rmBox');
+  if (!box) return;
+  box.innerHTML = remindersHTML();
+  icons();
+
+  $('#rmForm').onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const teks = String(f.get('teks') || '').trim();
+    if (!teks) return;
+    if (DB.put('pengingat', { teks, tanggal: f.get('tanggal') || '', done: 0 })) {
+      toast('Pengingat ditambahkan');
+      paintReminders();
+      chrome();
+    }
+  };
+
+  box.onclick = (e) => {
+    const b = e.target.closest('[data-rm]');
+    if (!b) return;
+    const id = b.dataset.id;
+    if (b.dataset.rm === 'toggle') {
+      const r = DB.get('pengingat', id);
+      if (r && DB.put('pengingat', { id, done: r.done ? 0 : 1 })) paintReminders();
+    } else if (DB.del('pengingat', id)) {
+      toast('Pengingat dihapus');
+      paintReminders();
+    }
+  };
+}
+
 function dash() {
   const docs = allDocs();
   const kuitansi = DB.list('kuitansi');
@@ -863,7 +1102,7 @@ function dash() {
     ['files', 'Total Dokumen', docs, 'miniriset'],
     ['receipt', 'Total Kuitansi', kuitansi, 'kuitansi'],
     ['calendar-days', 'Total Jadwal', jadwal, 'pedos'],
-    ['search-check', 'Catatan Turnitin', turnitin, 'turnitin'],
+    ['search-check', 'Turnitin', turnitin, 'turnitin'],
   ];
 
   const quickLinks = [...DOCS, 'turnitin', 'pedos', 'absensi', 'kuitansi'];
@@ -884,7 +1123,7 @@ function dash() {
     : '#e7edf7 0% 100%';
 
   const recent = docs
-    .slice(0, 5)
+    .slice(0, 8)
     .map(
       (r) => `
     <tr>
@@ -897,7 +1136,7 @@ function dash() {
     .join('');
 
   const events = upcoming
-    .slice(0, 4)
+    .slice(0, 3)
     .map((r) => {
       const d = new Date(r.tanggal + 'T00:00');
       return `
@@ -911,7 +1150,7 @@ function dash() {
   const next = upcoming[0];
 
   const top = [...counts].sort((x, y) => y[1] - x[1])[0];
-  const madeToday = Object.keys(M)
+  const madeTodayCount = Object.keys(M)
     .flatMap((m) => DB.list(m))
     .filter((r) => new Date(r.created).toLocaleDateString() === new Date().toLocaleDateString()).length;
 
@@ -942,7 +1181,7 @@ function dash() {
   /* Turnitin terbaru */
   const tnRows = [...turnitin]
     .sort((x, y) => (y.tanggal || '').localeCompare(x.tanggal || ''))
-    .slice(0, 4)
+    .slice(0, 3)
     .map(
       (r) => `
     <div class="tn"><div><p>${esc(r.nama)}</p><small>${esc(r.dokumen)}</small></div>${similarityBadge(r)}</div>`,
@@ -953,7 +1192,7 @@ function dash() {
   const actRows = Object.keys(M)
     .flatMap((m) => DB.list(m).map((r) => ({ ...r, _m: m })))
     .sort((x, y) => (y.upd || '').localeCompare(x.upd || ''))
-    .slice(0, 5)
+    .slice(0, 4)
     .map(
       (r) => `
     <div class="ev">
@@ -1026,7 +1265,7 @@ function dash() {
               .join('')}
             <div class="mini2">
               <div><small>Terbanyak</small><b>${total ? M[top[0]].label : '-'}</b></div>
-              <div><small>Dibuat hari ini</small><b>${madeToday}</b></div>
+              <div><small>Dibuat hari ini</small><b>${madeTodayCount}</b></div>
             </div>
           </div>
         </section>
@@ -1041,32 +1280,24 @@ function dash() {
               : emptyHTML('Belum ada dokumen. Buat surat pertamamu lewat Akses Cepat.')
           }
         </section>
-
-        <section class="card">
-          <div class="sec-h"><h3>Ringkasan Kuitansi</h3><a href="#kuitansi">Lihat Semua →</a></div>
-          <p class="muted sub">Total transaksi tercatat: <b>${rp(catTotal)}</b></p>
-          ${catRows || emptyHTML('Belum ada kuitansi.')}
-        </section>
       </div>
 
       <aside class="dash-side">
-        <div class="quote">“Disiplin hari ini, kesuksesan esok hari.”</div>
+        <div class="quote">
+          <span class="q-tag"><i data-lucide="sparkles"></i>Semangat hari ini</span>
+          <blockquote id="qText">${esc(quoteNow())}</blockquote>
+          <div class="q-foot">
+            <span>Student Desk · UNIMED</span>
+            <button type="button" class="q-next" data-qn aria-label="Tampilkan kutipan lain" title="Kutipan lain"><i data-lucide="refresh-cw"></i></button>
+          </div>
+        </div>
 
         <div class="card">
           <div class="sec-h"><h3>Jadwal Terdekat</h3><a href="#pedos">Lihat Semua →</a></div>
           ${events || emptyHTML('Tidak ada jadwal mendatang.')}
         </div>
 
-        <div class="card">
-          <h3>Pengingat</h3>
-          <div class="remind">
-            ${
-              next
-                ? `Jangan lupa menyiapkan kegiatan berikutnya: <b>${esc(next.kegiatan)}</b><small>${esc(tgl(next.tanggal))}</small>`
-                : 'Tidak ada pengingat. Semua kegiatan sudah beres. 🎉'
-            }
-          </div>
-        </div>
+        <div class="card" id="rmBox"></div>
 
         <div class="card">
           <div class="sec-h"><h3>Turnitin Terbaru</h3><a href="#turnitin">Lihat Semua →</a></div>
@@ -1090,20 +1321,37 @@ function dash() {
         </div>
 
         <div class="card">
+          <div class="sec-h"><h3>Ringkasan Kuitansi</h3><a href="#kuitansi">Lihat Semua →</a></div>
+          <p class="muted sub">Total transaksi tercatat: <b>${rp(catTotal)}</b></p>
+          ${catRows || emptyHTML('Belum ada kuitansi.')}
+        </div>
+
+        <div class="card">
           <h3>Aktivitas Terbaru</h3>
           ${actRows || emptyHTML('Belum ada aktivitas.')}
         </div>
       </aside>
     </div>`;
 
-  // Akses cepat: pindah ke halaman modul, lalu buka formulir tambah
+  paintReminders();
+
+  // Akses cepat, lihat dokumen, dan ganti kutipan
   $('#view').onclick = (e) => {
     const view = e.target.closest('[data-v]');
     if (view) return preview(view.dataset.m, view.dataset.id);
 
+    if (e.target.closest('[data-qn]')) {
+      quoteShift++;
+      const el = $('#qText');
+      el.classList.remove('swap');
+      void el.offsetWidth; // ulangi animasi
+      el.textContent = quoteNow();
+      el.classList.add('swap');
+      return;
+    }
+
     const btn = e.target.closest('[data-q]');
-    if (!btn) return;
-    quickAdd(btn.dataset.q);
+    if (btn) quickAdd(btn.dataset.q);
   };
 }
 
@@ -1161,7 +1409,6 @@ function riwayat() {
 
 /* --- Pengaturan --- */
 const SETTING_FIELDS = [
-  ['user', 'Nama Pengguna'],
   ['inst', 'Nama Institusi / Kampus'],
   ['prodi', 'Program Studi'],
   ['fakultas', 'Fakultas'],
@@ -1177,9 +1424,13 @@ const SETTING_DEFAULTS = { fmt: '{n}/SD/{bln}/{thn}', batas: 25 };
 function downloadBackup() {
   const blob = new Blob([JSON.stringify(DB.load(), null, 2)], { type: 'application/json' });
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  link.href = url;
   link.download = `student-desk-backup-${today()}.json`;
+  document.body.append(link);
   link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function importBackup(file) {
@@ -1189,6 +1440,14 @@ function importBackup(file) {
     try {
       const data = JSON.parse(reader.result);
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid');
+
+      // Modul yang bukan daftar dibuang; baris tanpa id/objek diabaikan
+      [...Object.keys(M), 'pengingat'].forEach((m) => {
+        if (data[m] === undefined) return;
+        if (!Array.isArray(data[m])) throw new Error('invalid');
+        data[m] = data[m].filter((r) => r && typeof r === 'object' && typeof r.id === 'string' && r.id);
+      });
+      if (data.settings && (typeof data.settings !== 'object' || Array.isArray(data.settings))) throw new Error('invalid');
 
       confirmBox('Impor akan MENIMPA seluruh data saat ini. Lanjutkan?', () => {
         DB.save(data) && toast('Data berhasil diimpor');
@@ -1204,6 +1463,7 @@ function importBackup(file) {
 
 function settings() {
   const current = S();
+  const demoRows = demoCount();
 
   const fields = SETTING_FIELDS.map(
     ([k, label]) => `
@@ -1231,15 +1491,18 @@ function settings() {
 
     <div class="card">
       <h3>Data contoh</h3>
-      <p class="muted">Data dummy untuk mencoba tampilan. Data buatanmu sendiri tidak ikut terhapus.</p>
-      <button class="btn ghost" id="dm1">Muat Data Contoh</button>
-      <button class="btn danger" id="dm0">Hapus Data Contoh</button>
+      <p class="muted">Saat ini tersimpan <b>${demoRows}</b> baris data contoh. Data contoh tidak akan mengganggu data buatanmu sendiri dan bisa dihapus kapan saja.</p>
+      <div class="row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:4px">
+        <button type="button" class="btn" id="demoSeed">Isi ulang data contoh</button>
+        <button type="button" class="btn ghost" id="demoClear">Hapus data contoh</button>
+      </div>
     </div>`;
 
   $('#sf').onsubmit = (e) => {
     e.preventDefault();
     const values = Object.fromEntries(new FormData(e.target));
-    values.batas = Number(values.batas) || 25;
+    values.batas = Math.min(100, Math.max(1, Number(values.batas) || 25));
+    if (!String(values.fmt || '').includes('{n}')) values.fmt = SETTING_DEFAULTS.fmt;
     if (DB.setSettings({ ...S(), ...values })) {
       toast('Pengaturan disimpan');
       go();
@@ -1247,17 +1510,6 @@ function settings() {
   };
 
   $('#ex').onclick = downloadBackup;
-  $('#dm1').onclick = () => {
-    seedDemo(true);
-    toast('Data contoh dimuat');
-    go();
-  };
-  $('#dm0').onclick = () =>
-    confirmBox('Hapus semua data contoh?', () => {
-      clearDemo();
-      toast('Data contoh dihapus');
-      go();
-    });
   $('#im').onclick = () => $('#fi').click();
   $('#fi').onchange = (e) => {
     const file = e.target.files[0];
@@ -1265,6 +1517,657 @@ function settings() {
     importBackup(file);
     e.target.value = '';
   };
+
+  if ($('#demoSeed')) {
+    $('#demoSeed').onclick = () =>
+      confirmBox(
+        'Ganti data contoh yang ada dengan versi baru? Data buatanmu sendiri tidak akan dihapus.',
+        () => {
+          if (seedDemoData()) {
+            toast('Data contoh diperbarui');
+            go();
+          } else {
+            toast('Gagal memuat data contoh', 1);
+          }
+        },
+      );
+  }
+
+  if ($('#demoClear')) {
+    $('#demoClear').onclick = () =>
+      confirmBox('Hapus semua data contoh? Data buatanmu sendiri tidak akan dihapus.', () => {
+        const removed = clearDemoData();
+        if (removed < 0) return toast('Gagal menghapus data contoh', 1);
+        toast(removed ? `${removed} data contoh dihapus` : 'Tidak ada data contoh');
+        go();
+      });
+  }
+}
+
+/* ==========================================================================
+   05a. DATA CONTOH
+   Semua baris diberi tanda `demo: 1`, sehingga bisa dihapus tanpa menyentuh
+   data yang dibuat sendiri oleh pengguna.
+   ========================================================================== */
+const DEMO_VERSION = 1;
+
+const DEMO_SETTINGS = {
+  user: 'Nabila Syafira',
+  inst: 'Universitas Negeri Medan',
+  prodi: 'Pendidikan Teknologi Informatika',
+  fakultas: 'Fakultas Teknik',
+  alamat: 'Jl. Willem Iskandar Pasar V, Medan 20221',
+  ttd: 'Dr. Muhammad Rizki, M.Kom.',
+  jabatan: 'Ketua Program Studi Pendidikan Teknologi Informatika',
+  fmt: '{n}/SD/{bln}/{thn}',
+  batas: 25,
+  peran: 'Mahasiswa',
+  nim: '7243150021',
+  email: 'nabila.syafira@student.unimed.ac.id',
+  telp: '0812-3456-7890',
+  lahir: '2004-03-14',
+  alamatPribadi: 'Jl. Gatot Subroto No. 12, Medan',
+  bio: 'Mahasiswa Pendidikan Teknologi Informatika UNIMED. Aktif di PEDOS dan senang merapikan administrasi.',
+};
+
+const DEMO_STUDENTS = [
+  ['Ahmad Fauzan', '7243150001', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Siti Sarah Nasution', '7243150002', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Muhammad Rizky Lubis', '7243150003', 'Ilmu Komputer', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+  ['Dinda Ayu Lestari', '7243150004', 'Manajemen', 'Fakultas Ekonomi'],
+  ['Josua Simbolon', '7243150005', 'Teknik Sipil', 'Fakultas Teknik'],
+  ['Nurul Hidayah', '7243150006', 'Pendidikan Bahasa Inggris', 'Fakultas Bahasa dan Seni'],
+  ['Kevin Simanjuntak', '7243150007', 'Sistem Informasi', 'Fakultas Teknik'],
+  ['Putri Wulandari', '7243150008', 'Akuntansi', 'Fakultas Ekonomi'],
+  ['Rian Saputra', '7243150009', 'Pendidikan Matematika', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+  ['Melati Sinaga', '7243150010', 'Pendidikan Guru Sekolah Dasar', 'Fakultas Ilmu Pendidikan'],
+  ['Andi Pratama', '7243150011', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Christina Sitorus', '7243150012', 'Pendidikan Bahasa Inggris', 'Fakultas Bahasa dan Seni'],
+  ['Hafizh Lubis', '7243150013', 'Ilmu Komputer', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+  ['Intan Permata Sari', '7243150014', 'Manajemen', 'Fakultas Ekonomi'],
+  ['Dhani Harahap', '7243150015', 'Teknik Sipil', 'Fakultas Teknik'],
+  ['Yuniarti Nasution', '7243150016', 'Akuntansi', 'Fakultas Ekonomi'],
+  ['David Situmorang', '7243150017', 'Sistem Informasi', 'Fakultas Teknik'],
+  ['Rizky Ramadhan', '7243150018', 'Pendidikan Matematika', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+  ['Almira Siregar', '7243150019', 'Pendidikan Guru Sekolah Dasar', 'Fakultas Ilmu Pendidikan'],
+  ['Beni Hutapea', '7243150020', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Nabila Syafira', '7243150021', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Tika Aprilia', '7243150022', 'Manajemen', 'Fakultas Ekonomi'],
+  ['Fajar Maulana', '7243150023', 'Ilmu Komputer', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+  ['Sarah Sihombing', '7243150024', 'Pendidikan Bahasa Inggris', 'Fakultas Bahasa dan Seni'],
+  ['Rudi Panjaitan', '7243150025', 'Teknik Sipil', 'Fakultas Teknik'],
+  ['Nadia Hasibuan', '7243150026', 'Akuntansi', 'Fakultas Ekonomi'],
+  ['Eko Saputra', '7243150027', 'Sistem Informasi', 'Fakultas Teknik'],
+  ['Wulan Damanik', '7243150028', 'Pendidikan Guru Sekolah Dasar', 'Fakultas Ilmu Pendidikan'],
+  ['Theo Nainggolan', '7243150029', 'Pendidikan Teknologi Informatika', 'Fakultas Teknik'],
+  ['Mawar Simatupang', '7243150030', 'Pendidikan Matematika', 'Fakultas Matematika dan Ilmu Pengetahuan Alam'],
+];
+
+const DEMO_INSTANSI = [
+  ['Dinas Pendidikan Provinsi Sumatera Utara', 'Jl. Imam Bonjol No. 35, Medan'],
+  ['PT Telkom Indonesia Witel Medan', 'Jl. Prof. H. M. Yamin No. 7, Medan'],
+  ['Bank Sumut Cabang Medan', 'Jl. Imam Bonjol No. 14, Medan'],
+  ['Politeknik Negeri Medan', 'Jl. Almamater No. 1, Medan'],
+  ['SMP Negeri 2 Medan', 'Jl. Amaliun No. 18, Medan'],
+  ['SMA Negeri 1 Medan', 'Jl. Budi Utomo No. 1, Medan'],
+  ['Universitas Negeri Medan', 'Jl. Willem Iskandar Pasar V, Medan'],
+  ['Dinas Komunikasi dan Informatika Kota Medan', 'Jl. Kapten Maulana Lubis No. 2, Medan'],
+  ['PT Inalum Kuala Tanjung', 'Kuala Tanjung, Batu Bara'],
+  ['Rumah Sakit Umum Haji Medan', 'Jl. Rumah Sakit Haji No. 1, Medan'],
+  ['Kantor Wilayah Kementerian Agama Sumatera Utara', 'Jl. Imam Bonjol No. 15, Medan'],
+  ['PT Perkebunan Nusantara III', 'Jl. Sei Batang Hari No. 2, Medan'],
+  ['UPT Teknologi Informasi dan Komunikasi UNIMED', 'Kampus UNIMED, Medan'],
+  ['CV Kreatif Digital Nusantara', 'Jl. Setia Budi No. 88, Medan'],
+  ['PT Sinar Mas Agro Resources', 'Jl. Raya Medan-Tanjung Morawa, Deli Serdang'],
+  ['Yayasan Pendidikan Nurul Ilmi', 'Jl. Gatot Subroto No. 120, Medan'],
+  ['PT Bank Mandiri Regional Medan', 'Jl. Diponegoro No. 12, Medan'],
+  ['Balai Bahasa Provinsi Sumatera Utara', 'Jl. Kolam No. 3, Medan'],
+];
+
+const DEMO_JUDUL_MINIRISET = [
+  'Analisis Pemanfaatan E-Learning pada Pembelajaran Daring di SMA Negeri 1 Medan',
+  'Perancangan Sistem Informasi Administrasi Surat Menyurat Berbasis Web',
+  'Pengaruh Literasi Digital terhadap Hasil Belajar Mahasiswa UNIMED',
+  'Evaluasi Kualitas Layanan Akademik di Fakultas Teknik UNIMED',
+  'Strategi Pemasaran Digital UMKM Kuliner di Kota Medan',
+  'Analisis Kepuasan Mahasiswa terhadap Layanan Perpustakaan UNIMED',
+  'Rancang Bangun Media Pembelajaran Interaktif Berbasis Android',
+  'Penerapan Sistem Informasi Geografis untuk Pemetaan Sekolah di Kota Medan',
+  'Analisis Pengelolaan Keuangan Badan Usaha Milik Desa',
+  'Pengaruh Motivasi Kerja terhadap Kinerja Pegawai Dinas Pendidikan',
+  'Perancangan Aplikasi Pengelolaan Inventaris Laboratorium Komputer',
+  'Analisis Kesiapan Digitalisasi Arsip pada Kantor Wilayah Kementerian Agama',
+  'Evaluasi Program Magang Bersertifikat di Politeknik Negeri Medan',
+  'Pemanfaatan Media Sosial sebagai Sarana Promosi Kampus',
+];
+
+const DEMO_POSISI_MAGANG = [
+  'Magang Bidang Aplikasi Informatika',
+  'Staf Administrasi Akademik',
+  'Data Analyst Intern',
+  'Magang Bidang Humas dan Protokoler',
+  'Asisten Pengelolaan Arsip Digital',
+  'Magang Bidang Keuangan',
+  'Web Developer Intern',
+  'Magang Bidang Layanan Pelanggan',
+  'Asisten Penelitian dan Pengembangan',
+  'Magang Bidang Desain Komunikasi Visual',
+  'Staf Pendukung Operasional',
+  'Magang Bidang Sistem Informasi',
+];
+
+const DEMO_MAGANG_START = [-18, -9, -2, 0, 1, 3, 5, 7, 12, 18, 24, 30];
+
+const DEMO_BAP = [
+  {
+    judul: 'Berita Acara Rapat Koordinasi Pengurus PEDOS',
+    tanggal: -1,
+    waktu: '09:00',
+    lokasi: 'Sekretariat PEDOS',
+    p1: 'Nabila Syafira',
+    j1: 'Ketua PEDOS',
+    p2: 'Ahmad Fauzan',
+    j2: 'Sekretaris PEDOS',
+    uraian:
+      'Rapat membahas persiapan program kerja bulan ini, pembagian tugas divisi, serta kebutuhan administrasi sekretariat.',
+    hasil:
+      'Disepakati bahwa setiap divisi menyerahkan rencana kegiatan paling lambat Jumat pekan ini dan sekretariat menyiapkan format laporan terbaru.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Serah Terima Dokumen Miniriset',
+    tanggal: -3,
+    waktu: '10:30',
+    lokasi: 'Ruang Akademik Fakultas Teknik',
+    p1: 'Siti Sarah Nasution',
+    j1: 'Koordinator Miniriset',
+    p2: 'Beni Hutapea',
+    j2: 'Staf Administrasi',
+    uraian:
+      'Penyerahan berkas permohonan miniriset mahasiswa yang telah diperiksa kelengkapan dan kesesuaian formatnya.',
+    hasil: 'Sebanyak empat belas berkas dinyatakan lengkap dan siap diteruskan kepada instansi tujuan.',
+    catatan: 'Dua berkas menyusul karena menunggu tanda tangan dosen pembimbing.',
+  },
+  {
+    judul: 'Berita Acara Validasi Data Mahasiswa Magang',
+    tanggal: -6,
+    waktu: '13:00',
+    lokasi: 'Ruang Rapat Program Studi',
+    p1: 'Kevin Simanjuntak',
+    j1: 'Koordinator Magang KKU',
+    p2: 'Putri Wulandari',
+    j2: 'Operator Data',
+    uraian:
+      'Validasi data mahasiswa peserta magang KKU meliputi nama, NIM, program studi, instansi tujuan, dan periode kegiatan.',
+    hasil: 'Data peserta telah sesuai dengan berkas pendaftaran dan siap diunggah ke sistem administrasi.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Rapat Evaluasi Kegiatan',
+    tanggal: -9,
+    waktu: '14:00',
+    lokasi: 'Sekretariat PEDOS',
+    p1: 'Rian Saputra',
+    j1: 'Wakil Ketua PEDOS',
+    p2: 'Melati Sinaga',
+    j2: 'Koordinator Acara',
+    uraian:
+      'Evaluasi pelaksanaan seminar nasional mencakup jumlah peserta, ketepatan waktu, dan kendala teknis selama kegiatan.',
+    hasil: 'Kegiatan dinilai berjalan baik. Diperlukan perbaikan pada koordinasi sound system dan registrasi peserta.',
+    catatan: 'Notulen lengkap tersimpan di arsip sekretariat.',
+  },
+  {
+    judul: 'Berita Acara Audit Internal Administrasi',
+    tanggal: -13,
+    waktu: '09:00',
+    lokasi: 'Ruang Rapat Fakultas Teknik',
+    p1: 'Andi Pratama',
+    j1: 'Ketua Divisi Administrasi',
+    p2: 'Christina Sitorus',
+    j2: 'Auditor Internal',
+    uraian:
+      'Pemeriksaan kelengkapan arsip surat masuk, surat keluar, kuitansi, dan laporan kegiatan tiga bulan terakhir.',
+    hasil: 'Arsip dinyatakan tertata. Ditemukan empat kuitansi tanpa lampiran bukti pembayaran dan telah diminta untuk dilengkapi.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Serah Terima Inventaris Sekretariat',
+    tanggal: -17,
+    waktu: '11:00',
+    lokasi: 'Sekretariat PEDOS',
+    p1: 'Intan Permata Sari',
+    j1: 'Bendahara PEDOS',
+    p2: 'Dhani Harahap',
+    j2: 'Pengurus Barang',
+    uraian:
+      'Serah terima inventaris berupa printer, proyektor, laptop, sound system, dan perlengkapan administrasi lainnya.',
+    hasil: 'Seluruh barang diterima dalam kondisi baik. Daftar inventaris ditandatangani oleh kedua pihak.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Rapat Koordinasi Divisi Acara',
+    tanggal: -20,
+    waktu: '15:00',
+    lokasi: 'Ruang B.03 Fakultas Teknik',
+    p1: 'Yuniarti Nasution',
+    j1: 'Koordinator Divisi Acara',
+    p2: 'David Situmorang',
+    j2: 'Koordinator Logistik',
+    uraian:
+      'Pembahasan rundown kegiatan, kebutuhan logistik, serta pembagian penanggung jawab setiap sesi acara.',
+    hasil: 'Rundown disetujui dengan penyesuaian waktu istirahat dan penambahan satu petugas registrasi.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Pelatihan Administrasi Surat Menyurat',
+    tanggal: -24,
+    waktu: '08:30',
+    lokasi: 'Lab Komputer Fakultas Teknik',
+    p1: 'Hafizh Lubis',
+    j1: 'Pemateri',
+    p2: 'Almira Siregar',
+    j2: 'Peserta',
+    uraian:
+      'Pelatihan penggunaan format surat resmi, penomoran dokumen, pengarsipan digital, dan alur tanda tangan.',
+    hasil: 'Peserta memahami alur administrasi baru dan menandatangani daftar hadir pelatihan.',
+    catatan: '',
+  },
+  {
+    judul: 'Berita Acara Penyerahan Hadiah Lomba',
+    tanggal: -28,
+    waktu: '10:00',
+    lokasi: 'Aula Utama UNIMED',
+    p1: 'Fajar Maulana',
+    j1: 'Ketua Panitia Lomba',
+    p2: 'Sarah Sihombing',
+    j2: 'Perwakilan Pemenang',
+    uraian:
+      'Penyerahan hadiah kepada pemenang lomba desain poster dan lomba karya tulis ilmiah tingkat fakultas.',
+    hasil: 'Hadiah telah diterima langsung oleh perwakilan pemenang dan didokumentasikan oleh tim media.',
+    catatan: '',
+  },
+];
+
+const DEMO_TURNITIN = [
+  { dokumen: 'Pengaruh Literasi Digital terhadap Hasil Belajar Mahasiswa', jenis: 'Skripsi', sim: 12, batas: 25, status: 'Selesai' },
+  { dokumen: 'Pengembangan Media Pembelajaran Interaktif Berbasis Android', jenis: 'Skripsi', sim: 18, batas: 25, status: 'Selesai' },
+  { dokumen: 'Sistem Informasi Administrasi Surat Menyurat', jenis: 'Proposal', sim: 9, batas: 25, status: 'Selesai' },
+  { dokumen: 'Analisis Kepuasan Mahasiswa terhadap Layanan Akademik', jenis: 'Skripsi', sim: 22, batas: 30, status: 'Selesai' },
+  { dokumen: 'Strategi Pemasaran Digital UMKM Kuliner Medan', jenis: 'Jurnal', sim: 31, batas: 25, status: 'Perlu Revisi' },
+  { dokumen: 'Evaluasi Program Magang Bersertifikat', jenis: 'Laporan', sim: 14, batas: 25, status: 'Selesai' },
+  { dokumen: 'Perancangan Aplikasi Inventaris Laboratorium', jenis: 'Proposal', sim: 8, batas: 25, status: 'Selesai' },
+  { dokumen: 'Pemanfaatan E-Learning pada Pembelajaran Daring', jenis: 'Makalah', sim: 19, batas: 25, status: 'Menunggu' },
+  { dokumen: 'Analisis Pengelolaan Keuangan Desa', jenis: 'Skripsi', sim: 24, batas: 25, status: 'Selesai' },
+  { dokumen: 'Pemetaan Sekolah Berbasis Sistem Informasi Geografis', jenis: 'Jurnal', sim: 28, batas: 25, status: 'Perlu Revisi' },
+  { dokumen: 'Pengaruh Motivasi Kerja terhadap Kinerja Pegawai', jenis: 'Skripsi', sim: 11, batas: 25, status: 'Selesai' },
+  { dokumen: 'Digitalisasi Arsip di Kantor Pemerintahan', jenis: 'Laporan', sim: 16, batas: 25, status: 'Selesai' },
+  { dokumen: 'Rancang Bangun Portal Berita Sekolah', jenis: 'Proposal', sim: 7, batas: 25, status: 'Selesai' },
+  { dokumen: 'Analisis Sentimen Media Sosial terhadap Layanan Kampus', jenis: 'Jurnal', sim: 21, batas: 25, status: 'Menunggu' },
+  { dokumen: 'Pengembangan Sistem Presensi Mahasiswa Berbasis QR Code', jenis: 'Skripsi', sim: 13, batas: 25, status: 'Selesai' },
+  { dokumen: 'Evaluasi Kualitas Website Universitas', jenis: 'Makalah', sim: 33, batas: 30, status: 'Perlu Revisi' },
+  { dokumen: 'Penerapan Internet of Things pada Smart Campus', jenis: 'Proposal', sim: 10, batas: 25, status: 'Selesai' },
+  { dokumen: 'Perancangan Media Promosi Digital', jenis: 'Laporan', sim: 17, batas: 25, status: 'Selesai' },
+  { dokumen: 'Analisis Kebutuhan Sistem Informasi Akademik', jenis: 'Jurnal', sim: 26, batas: 25, status: 'Perlu Revisi' },
+  { dokumen: 'Pengaruh Budaya Organisasi terhadap Kinerja Tim', jenis: 'Skripsi', sim: 15, batas: 25, status: 'Selesai' },
+];
+
+const DEMO_PEDOS = [
+  ['Rapat Koordinasi Pengurus PEDOS', 0, '08:30', '11:00', 'Sekretariat PEDOS', 'Nabila Syafira', 'Terjadwal', 'Membahas persiapan program kerja bulan ini.'],
+  ['Pelatihan Administrasi Surat Menyurat', 1, '13:00', '15:30', 'Ruang B.03 Fakultas Teknik', 'Ahmad Fauzan', 'Terjadwal', 'Wajib diikuti pengurus divisi administrasi.'],
+  ['Verifikasi Berkas Miniriset Mahasiswa', 2, '09:00', '12:00', 'Ruang Akademik FIP', 'Siti Sarah Nasution', 'Terjadwal', 'Membawa berkas asli dan salinan.'],
+  ['Workshop Turnitin dan Etika Akademik', 3, '08:00', '12:00', 'Aula Fakultas Teknik', 'Dr. Muhammad Rizki, M.Kom.', 'Terjadwal', 'Peserta membawa laptop masing-masing.'],
+  ['Pendampingan KKU Magang', 5, '10:00', '12:00', 'Ruang Rapat Program Studi', 'Kevin Simanjuntak', 'Terjadwal', 'Pendampingan bagi mahasiswa yang akan memulai magang.'],
+  ['Rapat Evaluasi Bulanan PEDOS', 7, '14:00', '16:00', 'Sekretariat PEDOS', 'Putri Wulandari', 'Terjadwal', 'Setiap divisi menyampaikan laporan singkat.'],
+  ['Rapat Persiapan Wisuda', 9, '09:00', '11:00', 'Sekretariat PEDOS', 'David Situmorang', 'Terjadwal', 'Membahas pembagian tugas panitia wisuda.'],
+  ['Sosialisasi Program Kerja', 12, '09:00', '11:30', 'Aula Utama UNIMED', 'Rian Saputra', 'Terjadwal', 'Terbuka untuk seluruh mahasiswa.'],
+  ['Pelatihan Public Speaking', 18, '13:00', '16:00', 'Ruang Seminar FBS', 'Melati Sinaga', 'Terjadwal', 'Kuota peserta terbatas sepuluh orang.'],
+  ['Bakti Sosial PEDOS', 25, '07:00', '12:00', 'Desa Suka Maju, Deli Serdang', 'Andi Pratama', 'Terjadwal', 'Titik kumpul di gerbang kampus pukul 06.30.'],
+  ['Opening PEDOS 2026', -30, '08:00', '11:00', 'Aula Utama UNIMED', 'Nabila Syafira', 'Selesai', 'Kegiatan pembukaan program kerja PEDOS.'],
+  ['Seminar Nasional Teknologi Pendidikan', -22, '09:00', '15:00', 'Aula Fakultas Teknik', 'Dr. Muhammad Rizki, M.Kom.', 'Selesai', 'Seminar diikuti 180 peserta.'],
+  ['Rapat Panitia Wisuda', -15, '10:00', '12:00', 'Ruang Rapat Rektorat', 'Ahmad Fauzan', 'Selesai', 'Koordinasi teknis acara wisuda.'],
+  ['Pelatihan Desain Grafis', -10, '13:00', '16:00', 'Lab Komputer FIP', 'Christina Sitorus', 'Selesai', 'Pelatihan dasar desain untuk tim media.'],
+  ['Audiensi dengan Wakil Dekan', -7, '09:30', '11:00', 'Ruang Wakil Dekan III', 'Hafizh Lubis', 'Selesai', 'Membahas dukungan sarana kegiatan mahasiswa.'],
+  ['Kerja Bakti Sekretariat', -5, '08:00', '10:30', 'Sekretariat PEDOS', 'Intan Permata Sari', 'Selesai', 'Pembersihan dan penataan ulang ruang sekretariat.'],
+  ['Rapat Koordinasi Divisi', -3, '14:00', '15:00', 'Ruang Rapat Program Studi', 'Dhani Harahap', 'Dibatalkan', 'Ditunda karena benturan jadwal.'],
+  ['Kelas Kepenulisan Ilmiah', -1, '15:30', '17:00', 'Ruang B.03 Fakultas Teknik', 'Yuniarti Nasution', 'Selesai', 'Materi sitasi dan penyusunan daftar pustaka.'],
+];
+
+const DEMO_ABSENSI_EVENTS = [
+  ['Rapat Koordinasi Pengurus PEDOS', 0, 'Sekretariat PEDOS'],
+  ['Pelatihan Administrasi Surat Menyurat', -2, 'Ruang B.03 Fakultas Teknik'],
+  ['Verifikasi Berkas Miniriset Mahasiswa', -5, 'Ruang Akademik FIP'],
+  ['Workshop Turnitin dan Etika Akademik', -9, 'Aula Fakultas Teknik'],
+  ['Seminar Nasional Teknologi Pendidikan', -14, 'Aula Fakultas Teknik'],
+  ['Rapat Evaluasi Bulanan PEDOS', -21, 'Sekretariat PEDOS'],
+  ['Opening PEDOS 2026', -30, 'Aula Utama UNIMED'],
+];
+
+const DEMO_KUITANSI = [
+  ['Ahmad Fauzan', 'Pendaftaran Seminar Nasional', 'Kegiatan', 150000, 'Tunai', 'Bendahara PEDOS'],
+  ['Siti Sarah Nasution', 'Pembayaran Administrasi Miniriset', 'Administrasi', 50000, 'Transfer', 'Bendahara PEDOS'],
+  ['Panitia PEDOS', 'Sewa Sound System Aula', 'Kegiatan', 750000, 'Transfer', 'Bendahara PEDOS'],
+  ['Muhammad Rizky Lubis', 'Pembelian ATK Sekretariat', 'Operasional', 235000, 'Tunai', 'Pengurus Barang'],
+  ['Dinda Ayu Lestari', 'Iuran Kegiatan Mahasiswa', 'Kegiatan', 100000, 'E-Wallet', 'Bendahara PEDOS'],
+  ['Bank Sumut', 'Biaya Administrasi Rekening', 'Administrasi', 15000, 'Transfer', 'Bendahara PEDOS'],
+  ['Josua Simbolon', 'Pembayaran Praktikum', 'Pendidikan', 350000, 'Transfer', 'Bendahara Fakultas'],
+  ['Nurul Hidayah', 'Cetak Modul Pelatihan', 'Pendidikan', 180000, 'Tunai', 'Sekretaris PEDOS'],
+  ['Kevin Simanjuntak', 'Konsumsi Rapat Koordinasi', 'Kegiatan', 320000, 'Tunai', 'Bendahara PEDOS'],
+  ['Putri Wulandari', 'Pembayaran Sewa Gedung', 'Kegiatan', 1250000, 'Transfer', 'Bendahara PEDOS'],
+  ['Rian Saputra', 'Pembelian Tinta Printer', 'Operasional', 275000, 'E-Wallet', 'Pengurus Barang'],
+  ['Melati Sinaga', 'Pendaftaran Workshop', 'Pendidikan', 125000, 'Transfer', 'Bendahara PEDOS'],
+  ['Andi Pratama', 'Penggandaan Berkas Miniriset', 'Administrasi', 65000, 'Tunai', 'Sekretaris PEDOS'],
+  ['Christina Sitorus', 'Honor Pembicara', 'Kegiatan', 1500000, 'Transfer', 'Bendahara PEDOS'],
+  ['Hafizh Lubis', 'Pembayaran Listrik Sekretariat', 'Operasional', 210000, 'E-Wallet', 'Bendahara PEDOS'],
+  ['Intan Permata Sari', 'Pembelian Hadiah Lomba', 'Kegiatan', 450000, 'Tunai', 'Bendahara PEDOS'],
+  ['Dhani Harahap', 'Iuran Wisuda', 'Pendidikan', 500000, 'Transfer', 'Bendahara Fakultas'],
+  ['Yuniarti Nasution', 'Konsumsi Pelatihan', 'Kegiatan', 375000, 'Tunai', 'Bendahara PEDOS'],
+  ['David Situmorang', 'Pembelian Masker dan Sanitizer', 'Operasional', 95000, 'E-Wallet', 'Pengurus Barang'],
+  ['Rizky Ramadhan', 'Pendaftaran Ujian Komprehensif', 'Pendidikan', 200000, 'Transfer', 'Bendahara Fakultas'],
+];
+
+const DEMO_PENGINGAT = [
+  ['Cetak ulang surat miniriset Ahmad Fauzan', 0, 0],
+  ['Konfirmasi kehadiran pembicara workshop', 1, 0],
+  ['Tempel tanda tangan BAP rapat koordinasi', 2, 0],
+  ['Kirim berkas magang ke PT Telkom', -1, 0],
+  ['Rapikan arsip kuitansi bulan lalu', 4, 0],
+  ['Backup data Student Desk', null, 1],
+];
+
+/* --- Helper tanggal & baris contoh --- */
+const demoDay = (offset = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+
+const demoStamp = (daysAgo = 0, hour = 9, minute = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, minute, 0, 0);
+  return d.toISOString();
+};
+
+const demoNo = (n, prefix = 'SD') => {
+  const d = new Date();
+  return `${String(n).padStart(3, '0')}/${prefix}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+};
+
+/** Bungkus satu baris dengan metadata agar bisa dihapus tanpa menyentuh data asli. */
+const demoRow = (m, i, fields, daysAgo = 0) => ({
+  ...fields,
+  id: `demo-${m}-${String(i + 1).padStart(3, '0')}`,
+  demo: 1,
+  created: demoStamp(daysAgo, 8 + (i % 7), (i * 7) % 60),
+  upd: demoStamp(Math.max(0, daysAgo - (i % 4)), 14 + (i % 5), (i * 11) % 60),
+});
+
+const demoModules = () => [...Object.keys(M), 'pengingat'];
+
+/** Bangun seluruh data contoh secara dinamis mengikuti tanggal hari ini. */
+function buildDemoData() {
+  const student = (i) => DEMO_STUDENTS[i % DEMO_STUDENTS.length];
+  const instansi = (i) => DEMO_INSTANSI[i % DEMO_INSTANSI.length];
+
+  const miniriset = Array.from({ length: 14 }, (_, i) => {
+    const [nama, nim, prodi, fakultas] = student(i * 3 + 1);
+    const [inst, alamat] = instansi(i);
+    return demoRow(
+      'miniriset',
+      i,
+      {
+        nomor: demoNo(i + 1),
+        nama,
+        nim,
+        prodi,
+        fakultas,
+        instansi: inst,
+        alamat,
+        judul: DEMO_JUDUL_MINIRISET[i],
+        tanggal: demoDay(-28 + i * 2),
+        penandatangan: DEMO_SETTINGS.ttd,
+        jabatan: DEMO_SETTINGS.jabatan,
+        isi: TPL_MINIRISET,
+        catatan: i % 5 === 0 ? 'Mohon konfirmasi jadwal pengambilan data sebelum kegiatan.' : '',
+      },
+      (i * 3) % 14,
+    );
+  });
+
+  const magang = DEMO_MAGANG_START.map((start, i) => {
+    const [nama, nim, prodi, fakultas] = student(i * 2 + 2);
+    const [inst, alamat] = instansi(i + 3);
+    return demoRow(
+      'magang',
+      i,
+      {
+        nomor: demoNo(15 + i),
+        nama,
+        nim,
+        prodi,
+        fakultas,
+        instansi: inst,
+        alamat,
+        posisi: DEMO_POSISI_MAGANG[i],
+        tglMulai: demoDay(start),
+        tglSelesai: demoDay(start + 60 + (i % 3) * 15),
+        tanggal: demoDay(Math.min(-1, start - 10)),
+        penandatangan: DEMO_SETTINGS.ttd,
+        jabatan: DEMO_SETTINGS.jabatan,
+        isi: TPL_MAGANG,
+      },
+      (i * 2) % 12,
+    );
+  });
+
+  const bap = DEMO_BAP.map((b, i) =>
+    demoRow(
+      'bap',
+      i,
+      {
+        nomor: demoNo(27 + i),
+        judul: b.judul,
+        tanggal: demoDay(b.tanggal),
+        waktu: b.waktu,
+        lokasi: b.lokasi,
+        p1: b.p1,
+        j1: b.j1,
+        p2: b.p2,
+        j2: b.j2,
+        uraian: b.uraian,
+        hasil: b.hasil,
+        penandatangan: DEMO_SETTINGS.ttd,
+        jabatan: DEMO_SETTINGS.jabatan,
+        catatan: b.catatan,
+      },
+      (i * 3) % 14,
+    ),
+  );
+
+  const turnitin = DEMO_TURNITIN.map((t, i) => {
+    const [nama, nim] = student(i * 2 + 4);
+    return demoRow(
+      'turnitin',
+      i,
+      {
+        nama,
+        nim,
+        dokumen: t.dokumen,
+        jenis: t.jenis,
+        tanggal: demoDay(-24 + i),
+        sim: t.sim,
+        batas: t.batas,
+        status: t.status,
+        ref: `Turnitin/2026/${String(i + 1).padStart(3, '0')}`,
+        catatan:
+          t.status === 'Perlu Revisi'
+            ? 'Perlu perbaikan pada bab tinjauan pustaka dan penulisan sitasi.'
+            : t.status === 'Menunggu'
+              ? 'Masih menunggu jadwal pengecekan ulang.'
+              : '',
+      },
+      (i * 2) % 14,
+    );
+  });
+
+  const pedos = DEMO_PEDOS.map((p, i) =>
+    demoRow(
+      'pedos',
+      i,
+      {
+        kegiatan: p[0],
+        tanggal: demoDay(p[1]),
+        mulai: p[2],
+        selesai: p[3],
+        lokasi: p[4],
+        pj: p[5],
+        status: p[6],
+        ket: p[7],
+      },
+      Math.min(13, Math.abs(p[1]) + 1),
+    ),
+  );
+
+  const absensi = [];
+  let absIndex = 0;
+  DEMO_ABSENSI_EVENTS.forEach((ev, ei) => {
+    for (let p = 0; p < 10; p++) {
+      const [nama, nim] = student(ei * 4 + p);
+      let status = 'Hadir';
+      if (p === 7) status = 'Izin';
+      else if (p === 8) status = ei % 2 ? 'Sakit' : 'Izin';
+      else if (p === 9 && ei % 3 === 0) status = 'Tidak Hadir';
+
+      absensi.push(
+        demoRow(
+          'absensi',
+          absIndex++,
+          {
+            kegiatan: ev[0],
+            tanggal: demoDay(ev[1]),
+            lokasi: ev[2],
+            nama,
+            nim,
+            status,
+            catatan:
+              status === 'Izin'
+                ? 'Surat izin sudah diterima'
+                : status === 'Sakit'
+                  ? 'Ada surat keterangan dokter'
+                  : status === 'Tidak Hadir'
+                    ? 'Belum ada konfirmasi'
+                    : '',
+          },
+          (ei * 2 + p) % 14,
+        ),
+      );
+    }
+  });
+
+  const kuitansi = DEMO_KUITANSI.map((k, i) =>
+    demoRow(
+      'kuitansi',
+      i,
+      {
+        nomor: `KW/${String(i + 1).padStart(3, '0')}/SD/${new Date().getFullYear()}`,
+        tanggal: demoDay(-30 + i + (i % 2)),
+        pembayar: k[0],
+        ket: k[1],
+        kategori: k[2],
+        jumlah: k[3],
+        metode: k[4],
+        penerima: k[5],
+        catatan: i % 6 === 0 ? 'Bukti pembayaran terlampir.' : '',
+      },
+      (i * 2) % 14,
+    ),
+  );
+
+  const pengingat = DEMO_PENGINGAT.map(([teks, offset, done], i) =>
+    demoRow(
+      'pengingat',
+      i,
+      {
+        teks,
+        tanggal: offset === null ? '' : demoDay(offset),
+        done,
+      },
+      (i * 2) % 9,
+    ),
+  );
+
+  return { miniriset, magang, bap, turnitin, pedos, absensi, kuitansi, pengingat };
+}
+
+/** Jumlah baris contoh yang saat ini tersimpan. */
+function demoCount(data = DB.load()) {
+  return demoModules().reduce(
+    (total, m) => total + (Array.isArray(data[m]) ? data[m].filter((r) => r.demo).length : 0),
+    0,
+  );
+}
+
+/** Ganti seluruh data contoh lama dengan data contoh baru. Data pengguna tidak disentuh. */
+function seedDemoData() {
+  const data = DB.load();
+  demoModules().forEach((m) => {
+    if (Array.isArray(data[m])) data[m] = data[m].filter((r) => !r.demo);
+  });
+
+  Object.entries(buildDemoData()).forEach(([m, rows]) => {
+    data[m] = [...(data[m] || []), ...rows];
+  });
+
+  const settings = { ...(data.settings || {}) };
+  const demoSettingKeys = new Set(Array.isArray(data.demoSettings) ? data.demoSettings : []);
+  Object.entries(DEMO_SETTINGS).forEach(([key, value]) => {
+    if (settings[key] == null || settings[key] === '') {
+      settings[key] = value;
+      demoSettingKeys.add(key);
+    }
+  });
+  data.settings = settings;
+  data.demoSettings = [...demoSettingKeys];
+
+  data.cleaned = 1;
+  data.demoSeeded = 1;
+  data.demoVersion = DEMO_VERSION;
+  return DB.save(data);
+}
+
+/** Isi otomatis satu kali saat versi ini pertama kali dibuka. */
+function seedDemoIfNeeded() {
+  if (DB.load().demoSeeded) return;
+  seedDemoData();
+}
+
+/** Hapus hanya baris yang bertanda demo. Mengembalikan jumlah baris yang dihapus. */
+function clearDemoData() {
+  const data = DB.load();
+  let removed = 0;
+
+  demoModules().forEach((m) => {
+    if (!Array.isArray(data[m])) return;
+    const before = data[m].length;
+    data[m] = data[m].filter((r) => !r.demo);
+    removed += before - data[m].length;
+  });
+
+  // Hapus juga isi pengaturan yang masih sama dengan nilai contoh dan belum
+  // pernah diubah pengguna.
+  const settings = { ...(data.settings || {}) };
+  const demoSettingKeys = Array.isArray(data.demoSettings) ? data.demoSettings : [];
+  demoSettingKeys.forEach((key) => {
+    if (settings[key] === DEMO_SETTINGS[key]) delete settings[key];
+  });
+  if (Object.keys(settings).length) data.settings = settings;
+  else delete data.settings;
+  delete data.demoSettings;
+
+  data.demoSeeded = 1;
+  data.demoVersion = DEMO_VERSION;
+  data.cleaned = 1;
+  return DB.save(data) ? removed : -1;
 }
 
 /* ==========================================================================
@@ -1272,362 +2175,54 @@ function settings() {
    ========================================================================== */
 
 /* ==========================================================================
-   05b. DATA CONTOH (dummy) — supaya dashboard langsung ramai
+   05b. BERSIHKAN DATA CONTOH LAMA
+   Versi sebelumnya pernah mengisi data dummy otomatis. Data lama itu dibuang
+   sekali saat pembaruan; data contoh baru dimuat dari bagian 05a. Data
+   buatan sendiri tidak disentuh.
    ========================================================================== */
-const addDays = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-};
+function cleanLegacyDemo() {
+  const data = DB.load();
+  if (!Object.keys(data).length || data.cleaned) return;
 
-function demoData() {
-  const P = 'Pendidikan Teknologi Informasi';
-  const F = 'Fakultas Keguruan dan Ilmu Pendidikan';
-  const sign = { penandatangan: 'Dr. Ahmad Fauzi, M.Pd.', jabatan: 'Wakil Dekan Bidang Akademik' };
-  const bln = String(new Date().getMonth() + 1).padStart(2, '0');
-  const thn = new Date().getFullYear();
-  const no = (n, p = '') => `${p}${String(n).padStart(3, '0')}${p ? '' : `/SD/${bln}/${thn}`}`;
-  const rec = (h, o) => {
-    const t = new Date(Date.now() - h * 36e5).toISOString();
-    return { id: uid(), created: t, upd: t, demo: 1, ...o };
-  };
-
-  const mini = (h, n, nama, nim, instansi, alamat, judul) =>
-    rec(h, {
-      nomor: no(n),
-      nama,
-      nim,
-      prodi: P,
-      fakultas: F,
-      instansi,
-      alamat,
-      judul,
-      tanggal: addDays(-n),
-      isi: TPL_MINIRISET,
-      ...sign,
-    });
-  const mag = (h, n, nama, nim, instansi, alamat, posisi, mulai, lama) =>
-    rec(h, {
-      nomor: no(n + 10),
-      nama,
-      nim,
-      prodi: P,
-      fakultas: F,
-      instansi,
-      alamat,
-      posisi,
-      tglMulai: addDays(mulai),
-      tglSelesai: addDays(mulai + lama),
-      tanggal: addDays(-n),
-      isi: TPL_MAGANG,
-      ...sign,
-    });
-  const bap = (h, n, judul, lokasi, p1, j1, p2, j2, uraian, hasil) =>
-    rec(h, {
-      nomor: no(n, 'BA-'),
-      judul,
-      tanggal: addDays(-n),
-      waktu: '09:00',
-      lokasi,
-      p1,
-      j1,
-      p2,
-      j2,
-      uraian,
-      hasil,
-      ...sign,
-    });
-  const tur = (h, nama, nim, dokumen, jenis, d, sim, status) =>
-    rec(h, {
-      nama,
-      nim,
-      dokumen,
-      jenis,
-      tanggal: addDays(d),
-      sim,
-      batas: 25,
-      status,
-      ref: 'Folder Turnitin Prodi',
-    });
-  const ped = (h, kegiatan, d, mulai, selesai, lokasi, pj, status, ket) =>
-    rec(h, {
-      kegiatan,
-      tanggal: addDays(d),
-      mulai,
-      selesai,
-      lokasi,
-      pj,
-      status,
-      ket,
-    });
-  const abs = (h, nama, nim, status) =>
-    rec(h, {
-      kegiatan: 'Workshop Penulisan Jurnal',
-      tanggal: addDays(-3),
-      lokasi: 'Aula Lantai 2',
-      nama,
-      nim,
-      status,
-    });
-  const kui = (h, n, d, pembayar, penerima, ket, kategori, jumlah, metode) =>
-    rec(h, {
-      nomor: no(n, 'KW-'),
-      tanggal: addDays(d),
-      pembayar,
-      penerima,
-      ket,
-      kategori,
-      jumlah,
-      metode,
-    });
-
-  return {
-    miniriset: [
-      mini(
-        1,
-        1,
-        'Rina Maharani',
-        '2210101001',
-        'Dinas Pendidikan Kota Medan',
-        'Jl. Pemuda No. 12, Medan',
-        'Pemanfaatan media digital dalam pembelajaran',
-      ),
-      mini(
-        26,
-        2,
-        'Dimas Prasetyo',
-        '2210101014',
-        'SMA Negeri 1 Medan',
-        'Jl. Teuku Cik Ditiro No. 1, Medan',
-        'Efektivitas pembelajaran berbasis proyek',
-      ),
-      mini(
-        50,
-        3,
-        'Salsabila Putri',
-        '2210101027',
-        'Perpustakaan Daerah Sumatera Utara',
-        'Jl. Gatot Subroto, Medan',
-        'Minat baca siswa di era digital',
-      ),
-    ],
-    magang: [
-      mag(
-        3,
-        1,
-        'Fajar Nugraha',
-        '2210101033',
-        'PT Nusantara Teknologi',
-        'Jl. Sudirman No. 45, Medan',
-        'Staf IT Support',
-        14,
-        90,
-      ),
-      mag(
-        40,
-        2,
-        'Aulia Rahmawati',
-        '2210101041',
-        'Dinas Kominfo Kota Medan',
-        'Jl. Balai Kota No. 2, Medan',
-        'Pengelola Konten',
-        21,
-        60,
-      ),
-    ],
-    bap: [
-      bap(
-        5,
-        1,
-        'Berita Acara Serah Terima Dokumen',
-        'Ruang Administrasi Akademik',
-        'Dr. Ahmad Fauzi, M.Pd.',
-        'Wakil Dekan',
-        'Rina Maharani',
-        'Mahasiswa',
-        'Penyerahan berkas administrasi seminar proposal beserta kelengkapannya.',
-        'Berkas diterima lengkap dan dinyatakan sah.',
-      ),
-      bap(
-        30,
-        4,
-        'Berita Acara Rapat Koordinasi',
-        'Ruang Rapat Prodi',
-        'Budi Santoso, M.Kom.',
-        'Ketua Prodi',
-        'Siti Aminah, S.Pd.',
-        'Sekretaris',
-        'Rapat koordinasi persiapan kegiatan orientasi mahasiswa baru.',
-        'Panitia dan jadwal kegiatan disepakati.',
-      ),
-    ],
-    turnitin: [
-      tur(2, 'Rina Maharani', '2210101001', 'Skripsi Bab I–III', 'Skripsi', -1, 12, 'Selesai'),
-      tur(20, 'Dimas Prasetyo', '2210101014', 'Proposal Penelitian', 'Proposal', -2, 18, 'Selesai'),
-      tur(30, 'Salsabila Putri', '2210101027', 'Artikel Jurnal Sinta 3', 'Jurnal', -4, 31, 'Perlu Revisi'),
-      tur(60, 'Fajar Nugraha', '2210101033', 'Laporan Magang', 'Laporan', -5, 9, 'Menunggu'),
-    ],
-    pedos: [
-      ped(
-        4,
-        'Orientasi Mahasiswa Baru',
-        1,
-        '08:00',
-        '12:00',
-        'Aula Utama',
-        'Siti Aminah',
-        'Terjadwal',
-        'Pembukaan dan pengenalan kampus.',
-      ),
-      ped(
-        6,
-        'Seminar Proposal Skripsi',
-        2,
-        '09:30',
-        '11:30',
-        'Ruang Sidang 2',
-        'Budi Santoso',
-        'Terjadwal',
-        '',
-      ),
-      ped(
-        8,
-        'Pelatihan Turnitin',
-        4,
-        '13:00',
-        '15:00',
-        'Lab Komputer 1',
-        'Rina Maharani',
-        'Terjadwal',
-        'Bawa laptop masing-masing.',
-      ),
-      ped(10, 'Bimbingan Magang', 7, '10:00', '11:00', 'Ruang Prodi', 'Dr. Ahmad Fauzi', 'Terjadwal', ''),
-      ped(
-        12,
-        'Rapat Himpunan Mahasiswa',
-        10,
-        '16:00',
-        '17:30',
-        'Sekretariat HMJ',
-        'Dimas Prasetyo',
-        'Terjadwal',
-        '',
-      ),
-      ped(
-        70,
-        'Workshop Penulisan Jurnal',
-        -3,
-        '09:00',
-        '12:00',
-        'Aula Lantai 2',
-        'Salsabila Putri',
-        'Selesai',
-        '',
-      ),
-    ],
-    absensi: [
-      abs(72, 'Rina Maharani', '2210101001', 'Hadir'),
-      abs(72, 'Dimas Prasetyo', '2210101014', 'Hadir'),
-      abs(72, 'Salsabila Putri', '2210101027', 'Hadir'),
-      abs(72, 'Fajar Nugraha', '2210101033', 'Izin'),
-      abs(72, 'Aulia Rahmawati', '2210101041', 'Hadir'),
-      abs(72, 'Bayu Saputra', '2210101052', 'Sakit'),
-    ],
-    kuitansi: [
-      kui(
-        7,
-        1,
-        -1,
-        'Rina Maharani',
-        'Bagian Keuangan',
-        'Pembayaran SPP semester ganjil',
-        'Pendidikan',
-        2500000,
-        'Transfer',
-      ),
-      kui(
-        28,
-        2,
-        -2,
-        'Dimas Prasetyo',
-        'Bagian Akademik',
-        'Biaya legalisir ijazah',
-        'Administrasi',
-        150000,
-        'Tunai',
-      ),
-      kui(
-        45,
-        3,
-        -4,
-        'Himpunan Mahasiswa',
-        'Panitia Orientasi',
-        'Konsumsi kegiatan orientasi',
-        'Kegiatan',
-        750000,
-        'E-Wallet',
-      ),
-      kui(
-        80,
-        4,
-        -6,
-        'Salsabila Putri',
-        'Toko Alat Tulis Maju',
-        'Cetak dan penjilidan laporan',
-        'Operasional',
-        320000,
-        'Tunai',
-      ),
-      kui(
-        100,
-        5,
-        -8,
-        'Fajar Nugraha',
-        'Bagian Keuangan',
-        'Biaya seminar dan sertifikat',
-        'Pendidikan',
-        1200000,
-        'Transfer',
-      ),
-    ],
-  };
+  Object.keys(M).forEach((m) => {
+    if (Array.isArray(data[m])) data[m] = data[m].filter((r) => !r.demo);
+  });
+  if (data.settings && data.settings.inst === 'Universitas Contoh Nusantara') delete data.settings;
+  data.cleaned = 1;
+  DB.save(data);
 }
 
-/** Isi data contoh. Tanpa `force`: hanya bila aplikasi masih kosong dan belum pernah diisi. */
-function seedDemo(force) {
+/* Data lama menyimpan jam sebagai "09.00"; input jam butuh "09:00". Idempotent. */
+function migrateTimes() {
   const data = DB.load();
-  const hasData = Object.keys(M).some((m) => Array.isArray(data[m]) && data[m].length);
-  if (!force && (data.seeded || hasData)) return;
-
-  const demo = demoData();
+  let changed = false;
   Object.keys(M).forEach((m) => {
-    const own = (Array.isArray(data[m]) ? data[m] : []).filter((r) => !r.demo);
-    data[m] = [...own, ...demo[m]];
+    if (!Array.isArray(data[m])) return;
+    const timeKeys = M[m].f.filter((f) => f[2] === 'time').map((f) => f[0]);
+    data[m].forEach((r) =>
+      timeKeys.forEach((k) => {
+        const fixed = normTime(r[k]);
+        if (fixed !== r[k]) {
+          r[k] = fixed;
+          changed = true;
+        }
+      }),
+    );
   });
-  if (!data.settings) {
-    data.settings = {
-      user: 'Pelajar',
-      inst: 'Universitas Contoh Nusantara',
-      prodi: 'Pendidikan Teknologi Informasi',
-      fakultas: 'Fakultas Keguruan dan Ilmu Pendidikan',
-      alamat: 'Jl. Pendidikan No. 1, Medan',
-      ttd: 'Dr. Ahmad Fauzi, M.Pd.',
-      jabatan: 'Wakil Dekan Bidang Akademik',
-      fmt: '{n}/SD/{bln}/{thn}',
-      batas: 25,
-    };
+  if (changed) DB.save(data);
+}
+
+/* Foto & peran di header (nilai foto hanya diterima bila berupa data gambar) */
+function applyAva() {
+  const s = S();
+  const a = $('#ava');
+  const photo = typeof s.foto === 'string' && /^data:image\/(jpeg|png|webp|gif);base64,[\w+/=]+$/.test(s.foto) ? s.foto : '';
+  if (a) {
+    a.style.backgroundImage = photo ? `url("${photo}")` : '';
+    a.style.color = photo ? 'transparent' : '';
   }
-  data.seeded = 1;
-  DB.save(data);
-}
-
-function clearDemo() {
-  const data = DB.load();
-  Object.keys(M).forEach((m) => {
-    data[m] = DB.list(m).filter((r) => !r.demo);
-  });
-  data.seeded = 1;
-  DB.save(data);
+  const sm = $('.me small');
+  if (sm) sm.textContent = s.peran || 'Pelajar';
 }
 
 /* Item menu: [judul grup] atau [rute, label, ikon] */
@@ -1756,6 +2351,7 @@ function go() {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+  applyAva();
   $('#view').onclick = null;
   chrome();
 
@@ -1840,7 +2436,9 @@ $('#collapse').onclick = () => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closePops();
-  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+  const el = document.activeElement;
+  const typing = /INPUT|TEXTAREA|SELECT/.test(el.tagName) || el.isContentEditable;
+  if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden && $('#cmd')?.hidden !== false) {
     e.preventDefault();
     $('#gs').focus();
   }
@@ -1856,7 +2454,9 @@ $('#gs').addEventListener('keydown', (e) => {
 
 window.addEventListener('hashchange', go);
 window.addEventListener('load', icons); // ulang setelah library ikon siap
-seedDemo();
+cleanLegacyDemo();
+seedDemoIfNeeded();
+migrateTimes();
 go();
 
 /* FEATURES.JS — fitur tambahan Student Desk (dimuat setelah app.js) */
@@ -1952,6 +2552,7 @@ go();
     paint();
   });
   cin.addEventListener('keydown', (e) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !shown.length) return e.preventDefault();
     if (e.key === 'ArrowDown') {
       sel = (sel + 1) % shown.length;
       paint();
@@ -1991,7 +2592,7 @@ go();
     if (m === 'turnitin')
       base.push(
         ['Rata-rata similarity', (rows.length ? n('sim') / rows.length : 0).toFixed(1) + '%'],
-        ['Melebihi batas', rows.filter((r) => r.sim > (r.batas || 25)).length],
+        ['Melebihi batas', rows.filter((r) => r.sim > (r.batas || S().batas || 25)).length],
       );
     if (m === 'pedos')
       base.push(
@@ -2014,15 +2615,24 @@ go();
   /* ---------- Ekspor CSV & duplikat ---------- */
   const exportCsv = (m) => {
     const f = M[m].f,
-      q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      // Sel yang diawali = + - @ dianggap rumus oleh Excel; beri tanda petik agar tampil sebagai teks
+      q = (v) => {
+        let s = String(v ?? '');
+        if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+        return '"' + s.replace(/"/g, '""') + '"';
+      };
     const lines = [
       f.map((x) => q(x[1])).join(','),
       ...DB.list(m).map((r) => f.map((x) => q(r[x[0]])).join(',')),
     ];
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+    const url = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    a.href = url;
     a.download = `${m}-${today()}.csv`;
+    document.body.append(a);
     a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast('CSV diunduh');
   };
   document.addEventListener('click', (e) => {
@@ -2075,6 +2685,14 @@ go();
       [...(t.rows[0]?.cells || [])].forEach((th, i, all) => {
         if (th.dataset.s || i === all.length - 1 || th.tagName !== 'TH') return;
         th.dataset.s = 1;
+        th.tabIndex = 0;
+        th.setAttribute('role', 'button');
+        th.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            th.click();
+          }
+        };
         th.onclick = () => {
           const asc = th.getAttribute('aria-sort') !== 'ascending';
           all.forEach((x) => x.removeAttribute('aria-sort'));
@@ -2083,7 +2701,11 @@ go();
             .slice(1)
             .sort(
               (a, b) =>
-                a.cells[i].textContent.localeCompare(b.cells[i].textContent, 'id', { numeric: true }) *
+                (a.cells[i].dataset.sv ?? a.cells[i].textContent).localeCompare(
+                  b.cells[i].dataset.sv ?? b.cells[i].textContent,
+                  'id',
+                  { numeric: true },
+                ) *
                 (asc ? 1 : -1),
             );
           rows.forEach((r) => r.parentNode.append(r));
@@ -2095,14 +2717,6 @@ go();
   const dashExtras = (v) => {
     const stats = $('.stats', v);
     if (!stats || $('.wk', v)) return;
-    const colL = $('.dash > div', v), colR = $('.dash-side', v);
-    if (colL && colR) {
-      const tag = (el, c) => el && el.classList.add(c), l = colL.children, r = colR.children, q = $('.row2', colL);
-      ['a-hero', 'a-stats', 'a-row2', 'a-recent', 'a-kuit'].forEach((c, i) => tag(l[i], c));
-      ['a-quote', 'a-jad', 'a-ping', 'a-turn', 'a-abs', 'a-akt'].forEach((c, i) => tag(r[i], c));
-      tag(q && q.children[0], 'a-qa');
-      tag(q && q.children[1], 'a-ring');
-    }
     const day = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
     const all = Object.keys(M).flatMap((m) => DB.list(m));
     const on = (d) => all.filter((r) => r.created && new Date(r.created).toDateString() === d.toDateString()).length;
@@ -2151,13 +2765,6 @@ go();
     svg.onpointerleave = hide;
   };
 
-  const applyAva = () => {
-    const s = S(), a = $('#ava');
-    if (a) { a.style.backgroundImage = s.foto ? `url(${s.foto})` : ''; a.style.color = s.foto ? 'transparent' : ''; }
-    const sm = $('.me small');
-    if (sm) sm.textContent = s.peran || 'Pelajar';
-  };
-  applyAva();
 
   const profileExtras = (v) => {
     if ($('#pf', v)) return;
@@ -2178,7 +2785,7 @@ go();
     card.id = 'pf';
     const paint = () => {
       const c = S(), el = $('#pfAva', card);
-      el.style.backgroundImage = c.foto ? `url(${c.foto})` : '';
+      el.style.backgroundImage = c.foto && /^data:image\//.test(c.foto) ? `url("${c.foto}")` : '';
       el.textContent = c.foto ? '' : (c.user || 'P').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
       $('#pfDel', card).hidden = !c.foto;
     };
@@ -2201,7 +2808,10 @@ go();
       if (!f) return;
       if (!f.type.startsWith('image/')) return toast('File harus berupa gambar', 1);
       const img = new Image(), url = URL.createObjectURL(f);
-      img.onerror = () => toast('Gambar tidak bisa dibaca', 1);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        toast('Gambar tidak bisa dibaca', 1);
+      };
       img.onload = () => {
         const n = 256, c = document.createElement('canvas'), k = Math.min(img.width, img.height);
         c.width = c.height = n;

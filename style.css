@@ -106,15 +106,18 @@ svg {
 .logo {
   margin: 0 -14px 12px;
   padding: 18px 18px 14px;
+  overflow: hidden;
   border-bottom: 1px solid var(--line);
-  box-shadow: inset 0 3px 0 var(--pr);
 }
 .logo img {
   display: block;
-  width: 100%;
-  max-width: 210px;
+  width: auto;
+  max-width: 100%;
   height: auto;
+  max-height: 64px;
   margin-bottom: 10px;
+  object-fit: contain;
+  object-position: left center;
 }
 .logo .emblem {
   display: none;
@@ -1585,9 +1588,11 @@ table tr:hover td {
 }
 .quote {
   display: flex;
-  align-items: flex-end;
-  min-height: 210px;
-  padding: 22px 24px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 250px;
+  padding: 20px 22px;
   overflow: hidden;
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
   background:
@@ -1617,9 +1622,6 @@ table tr:hover td {
 }
 .logo img.full {
   transition: transform 0.3s var(--e);
-}
-.logo:hover img.full {
-  transform: scale(1.03);
 }
 .card {
   transition:
@@ -2305,110 +2307,6 @@ td,
   font-size: 13px;
 }
 
-/* ==========================================================================
-   LAYOUT DASHBOARD (grid 12 kolom, kartu sebaris sama tinggi) & NAVBAR
-   ========================================================================== */
-.dash {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 16px;
-  align-items: stretch;
-}
-.dash > div,
-.dash-side,
-.dash .row2 {
-  display: contents;
-}
-.dash .card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.a-hero {
-  order: 1;
-  grid-column: 1/-1;
-  min-height: 240px;
-}
-.a-stats {
-  order: 2;
-  grid-column: 1/-1;
-}
-.a-wk {
-  order: 3;
-  grid-column: span 8;
-}
-.a-jad {
-  order: 4;
-  grid-column: span 4;
-}
-.a-qa {
-  order: 5;
-  grid-column: span 7;
-}
-.a-ring {
-  order: 6;
-  grid-column: span 5;
-}
-.a-recent {
-  order: 7;
-  grid-column: span 8;
-}
-.a-quote {
-  order: 8;
-  grid-column: span 4;
-  min-height: 220px;
-}
-.a-kuit {
-  order: 9;
-  grid-column: span 4;
-}
-.a-turn {
-  order: 10;
-  grid-column: span 4;
-}
-.a-abs {
-  order: 11;
-  grid-column: span 4;
-}
-.a-akt {
-  order: 12;
-  grid-column: span 8;
-}
-.a-ping {
-  order: 13;
-  grid-column: span 4;
-}
-.dash .tw,
-.dash .qa,
-.a-wk .plot {
-  flex: 1;
-}
-.a-wk .plot {
-  display: flex;
-  align-items: center;
-}
-.a-wk .trend {
-  width: 100%;
-}
-.a-jad .ev,
-.a-akt .ev,
-.a-turn .tn,
-.a-kuit .hb {
-  flex: 1;
-}
-.a-ping .remind {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
-}
-.dash .empty {
-  margin: auto;
-}
-.dash .qa button {
-  height: 100%;
-}
-
 /* Sidebar: tanpa garis scroll, menu lebih rapi */
 #side {
   scrollbar-width: none;
@@ -2500,48 +2398,6 @@ header {
   max-width: 1560px;
 }
 @media (max-width: 1199px) {
-  .a-wk,
-  .a-qa,
-  .a-recent {
-    grid-column: 1/-1;
-  }
-  .a-jad,
-  .a-ping,
-  .a-ring,
-  .a-quote,
-  .a-kuit,
-  .a-turn,
-  .a-abs,
-  .a-akt {
-    grid-column: span 6;
-  }
-  .a-ping {
-    order: 5;
-  }
-  .a-qa {
-    order: 6;
-  }
-  .a-ring {
-    order: 7;
-  }
-  .a-quote {
-    order: 8;
-  }
-  .a-recent {
-    order: 9;
-  }
-  .a-kuit {
-    order: 10;
-  }
-  .a-turn {
-    order: 11;
-  }
-  .a-abs {
-    order: 12;
-  }
-  .a-akt {
-    order: 13;
-  }
   .stats {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -2593,25 +2449,6 @@ header {
   }
 }
 @media (max-width: 760px) {
-  .a-wk,
-  .a-jad,
-  .a-ping,
-  .a-qa,
-  .a-ring,
-  .a-quote,
-  .a-recent,
-  .a-kuit,
-  .a-turn,
-  .a-abs,
-  .a-akt {
-    grid-column: 1/-1;
-  }
-  .a-hero {
-    min-height: 0;
-  }
-  .a-quote {
-    min-height: 170px;
-  }
   .fgrid,
   .qa {
     grid-template-columns: 1fr;
@@ -2708,4 +2545,464 @@ header {
   .hb {
     grid-template-columns: 72px 1fr auto;
   }
+}
+/* ===== Kutipan harian ===== */
+.quote blockquote {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.quote blockquote::before {
+  content: "“";
+  display: block;
+  height: 26px;
+  font-size: 54px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+}
+.quote blockquote.swap {
+  animation: rise 0.4s var(--e);
+}
+.q-tag {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-shadow: none;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+}
+.q-tag svg {
+  width: 13px;
+  height: 13px;
+}
+.q-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+}
+.q-next {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.2s, rotate 0.4s var(--e);
+}
+.q-next:hover {
+  background: rgba(255, 255, 255, 0.28);
+  rotate: 180deg;
+}
+.q-next svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ===== Pengingat ===== */
+.rm-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rm-date {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--mu);
+}
+.rm-date span {
+  flex: none;
+}
+.rm-date input {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.rm-form .btn {
+  justify-content: center;
+  width: 42px;
+  padding: 0;
+  margin: 0;
+}
+.rm-list {
+  display: flex;
+  flex-direction: column;
+}
+.rm {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line2);
+  color: inherit;
+}
+.rm:last-child {
+  border-bottom: 0;
+}
+a.rm:hover .rm-b p {
+  color: var(--pr);
+}
+.rm-ic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.rm-ic svg {
+  width: 17px;
+  height: 17px;
+}
+.rm-b {
+  flex: 1;
+  min-width: 0;
+}
+.rm-b p {
+  margin: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.rm-b small {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--mu);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm .badge {
+  flex: none;
+  font-size: 11px;
+}
+.rm-chk {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  color: transparent;
+  background: var(--sf);
+  transition: 0.2s;
+}
+.rm-chk svg {
+  width: 14px;
+  height: 14px;
+}
+.rm-chk:hover {
+  border-color: var(--pr);
+}
+.rm.done .rm-chk {
+  color: #fff;
+  border-color: var(--pr);
+  background: var(--pr);
+}
+.rm.done .rm-b p {
+  color: var(--mu);
+  text-decoration: line-through;
+}
+.rm-x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--mu);
+  background: none;
+  opacity: 0.55;
+  transition: 0.15s;
+}
+.rm-x svg {
+  width: 15px;
+  height: 15px;
+}
+.rm-x:hover {
+  opacity: 1;
+  color: var(--bt);
+  background: var(--bb);
+}
+.rm-empty {
+  padding: 18px 8px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--mu);
+}
+.rm-empty svg {
+  display: block;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 8px;
+  opacity: 0.6;
+}
+
+/* Kartu statistik: teks tidak membungkus berantakan */
+.stat > div {
+  min-width: 0;
+}
+.stat > div > span,
+.stat > div > em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat .tile {
+  width: 40px;
+  height: 40px;
+}
+
+/* ===== Sidebar: selalu muat di layar pendek =====
+   Menu bisa digulir sendiri; kartu penyimpanan tetap terlihat di bawah. */
+#side {
+  overflow: hidden;
+}
+#nav {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+#nav::-webkit-scrollbar {
+  display: block;
+  width: 5px;
+}
+#nav::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: var(--line);
+}
+#nav h6 {
+  margin: 12px 8px 4px;
+}
+#nav a {
+  margin-bottom: 1px;
+  padding: 4px 8px;
+}
+#nav a svg {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+}
+#nav a.on::before {
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+}
+.store {
+  flex: none;
+  margin-top: 8px;
+}
+.tip {
+  flex: none;
+}
+@media (max-height: 1000px) {
+  .tip {
+    display: none;
+  }
+}
+
+/* ===== Dashboard: dua kolom sama tinggi, tanpa ruang kosong ===== */
+.dash {
+  align-items: stretch;
+}
+.dash > div > section:not(.hero):not(.stats),
+.dash-side > * {
+  flex: 1 1 auto;
+}
+.dash .card {
+  display: flex;
+  flex-direction: column;
+}
+.dash .row2 > .card {
+  min-width: 0;
+}
+.dash .empty {
+  margin: auto;
+}
+.dash .quote {
+  flex: 1 1 auto;
+}
+.dash .ev,
+.dash .tn,
+.dash .hb,
+.dash .rm-list {
+  flex: 1 1 auto;
+}
+.dash .rm-list {
+  justify-content: space-around;
+}
+.dash .tw,
+.dash .qa,
+.wk .plot {
+  flex: 1;
+}
+.wk .plot {
+  display: flex;
+  align-items: center;
+}
+.dash .card.col .lg {
+  flex: 1;
+  min-height: 26px;
+}
+.dash .qa button {
+  height: 100%;
+}
+@media (max-width: 1180px) {
+  .dash .quote {
+    min-height: 200px;
+  }
+}
+.dash .stat {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* ===== Data banyak: teks panjang dipotong, kartu tertentu tidak melar ===== */
+.ev > div:last-child,
+.tn > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.ev p,
+.ev small,
+.tn p,
+.tn small,
+.abs-t {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash .wk {
+  flex: 0 0 auto;
+}
+.dash .qa button {
+  justify-content: center;
+}
+.dash .tw {
+  max-height: none;
+}
+
+/* ===== Polesan responsif akhir =====
+   Aturan di bawah sengaja paling akhir agar menimpa duplikasi di atas. */
+:root {
+  --sw: 264px;
+}
+
+/* Label menu tidak boleh turun ke baris kedua. */
+#nav a > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#nav a > .cnt {
+  flex: 0 0 auto;
+}
+
+/* Hero dashboard: jadwal berikutnya turun ke bawah sebelum kolom kiri menyempit. */
+@media (max-width: 1320px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+  .hero .nextup {
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+/* Statistik dashboard: 4 kolom hanya jika kolom kiri cukup lebar. */
+.stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 1499px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 420px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Judul halaman dan tombol aksinya tidak saling menghimpit. */
+.page-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.page-head-main {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .page-head {
+    align-items: flex-start;
+  }
+  .page-head-main {
+    flex-basis: 100%;
+  }
+  .page-head > .btn:first-of-type {
+    margin-left: auto;
+  }
+}
+
+/* Logo mengisi lebar sidebar (termasuk drawer ponsel). */
+.logo .full {
+  max-height: 80px;
+}
+
+/* Drawer ponsel menutup bilah bawah agar isinya tidak terpotong. */
+@media (max-width: 760px) {
+  #side {
+    z-index: 30;
+  }
+  #shade {
+    z-index: 26;
+  }
+  .tw {
+    max-height: none;
+  }
+}
+
+/* ===== Perbaikan: cadangan warna bila foto latar tidak ada ===== */
+.quote {
+  background-color: #0b5f39;
+}
+th[tabindex]:focus-visible {
+  outline: 2px solid var(--pr);
+  outline-offset: -2px;
 }
